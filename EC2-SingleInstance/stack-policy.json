@@ -1,0 +1,12 @@
+{
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "s3.GetObject"
+            ],
+            "Principal": "*",
+            "Resource": "arn:aws:s3:::aws-cf-b-study-templates"
+        }
+    ]
+}

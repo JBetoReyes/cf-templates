@@ -1,14 +1,15 @@
 include .env
 
-STACKNAME := aws-ec2-si-study-guide
+STACKNAME := aws-eks-study-guide
 BUCKET := aws-cf-b-study-templates
 KEYFILE_ARG := ${KEYFILE}
 
-STACK_CLI_ARGS := --template-url https://$(BUCKET).s3.amazonaws.com/master.yaml \
+STACK_CLI_ARGS := --template-url https://$(BUCKET).s3.amazonaws.com/master.yml \
 					--stack-name ${STACKNAME} \
 					--parameters \
 					ParameterKey=KeyName,ParameterValue=$(KEYFILE_ARG) \
-					--capabilities CAPABILITY_IAM
+					--capabilities CAPABILITY_IAM \
+					--capabilities CAPABILITY_NAMED_IAM
 
 all: fetch_bucket
 	aws cloudformation create-stack $(STACK_CLI_ARGS)

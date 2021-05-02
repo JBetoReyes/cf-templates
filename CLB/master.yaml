@@ -1,0 +1,188 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Parameters:
+  InstanceType:
+    Description: Webserver EC2 instance type
+    Type: String
+    Default: t2.micro
+    AllowedValues: [t1.micro, t2.nano, t2.micro, t2.small, t2.medium, t2.large]
+  KeyName:
+    Description: Name of an existing EC2 keypair to enable SSH access to the instance
+    Type: AWS::EC2::KeyPair::KeyName
+    ConstraintDescription: Must be a valid EC2 instance type
+  LBAvailabilityZone1:
+    Description: The first availability zone
+    Type: AWS::EC2::AvailabilityZone::Name
+    ConstraintDescription: Must be a valid availability zones
+  LBAvailabilityZone2:
+    Description: The second availability zone
+    Type: AWS::EC2::AvailabilityZone::Name
+    ConstraintDescription: Must be a valid availability zones
+  LatestAmiId:
+    Type:  'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+
+Mappings:
+  Region2Examples:
+    us-east-1:
+      Examples: https://s3.amazonaws.com/cloudformation-examples-us-east-1
+
+Resources:
+
+  ElasticLoadBalancer:
+    Type: AWS::ElasticLoadBalancing::LoadBalancer
+    Properties:
+      AvailabilityZones: !GetAZs ''
+      CrossZone: 'true'
+      Instances: [!Ref EC2Instance1, !Ref EC2Instance2, !Ref EC2Instance3]
+      LBCookieStickinessPolicy:
+      - PolicyName: myLBPolicy
+        CookieExpirationPeriod: '180'
+      Listeners:
+      - LoadBalancerPort: '80'
+        InstancePort: '80'
+        Protocol: HTTP
+        PolicyNames: [myLBPolicy]
+      HealthCheck:
+        Target: HTTP:80/
+        HealthyThreshold: '3'
+        UnhealthyThreshold: '5'
+        Interval: '30'
+        Timeout: '5'
+
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable SSH access via port 22
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 22
+        ToPort: 22
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: '80'
+        ToPort: '80'
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: '443'
+        ToPort: '443'
+        CidrIp: 0.0.0.0/0
+  
+  EC2Instance1:
+    Type: AWS::EC2::Instance
+    Metadata:
+      Comment: Install a simple application
+      AWS::CloudFormation::Init:
+        config:
+          packages:
+            yum:
+              httpd: []
+          files:
+            /var/www/html/index.html:
+              content: !Join ['
+
+                  ', [<img src=", !FindInMap [Region2Examples, !Ref 'AWS::Region',
+                    Examples], /cloudformation_graphic.png" alt="AWS CloudFormation
+                    Logo"/>, '<h1>Congratulations Beto working!, you have successfully launched
+                    the AWS CloudFormation sample.</h1>']]
+              mode: '000644'
+              owner: root
+              group: root
+            /etc/cfn/cfn-hup.conf:
+              content: !Join ['', ['[main]
+
+                    ',stack=, !Ref 'AWS::StackId', '
+
+                    ',region=, !Ref 'AWS::Region',
+                    "\n",'interval=1', 
+                    "\n"
+                    ]]
+              mode: '000400'
+              owner: root
+              group: root
+            /etc/cfn/hooks.d/cfn-auto-reloader.conf:
+              content: !Join ['', ['[cfn-auto-reloader-hook]
+
+                    ', 'triggers=post.update
+
+                    ', 'path=Resources.EC2Instance1.Metadata.AWS::CloudFormation::Init
+
+                    ', 'action=/opt/aws/bin/cfn-init -v ', ' --stack ', !Ref 'AWS::StackName',
+                  ' --resource EC2Instance1', ' --region ', !Ref 'AWS::Region',
+                  "\n", 'runas=root
+
+                    ']]
+              mode: '000400'
+              owner: root
+              group: root
+          services:
+            sysvinit:
+              httpd:
+                enabled: 'true'
+                ensureRunning: 'true'
+              cfn-hup:
+                enabled: 'true'
+                ensureRunning: 'true'
+                files: [/etc/cfn/cfn-hup.conf, /etc/cfn/hooks.d/cfn-auto-reloader.conf]
+    Properties:
+      SecurityGroups: [!Ref InstanceSecurityGroup]
+      KeyName: !Ref KeyName
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref 'LatestAmiId'
+      UserData: !Base64
+        Fn::Join:
+        - ''
+        - ['#!/bin/bash -x',
+          "\n", 'yum update -y aws-cfn-bootstrap',
+          "\n", '/opt/aws/bin/cfn-init -v ', ' --stack ', !Ref 'AWS::StackName',
+          ' --resource EC2Instance1 ', ' --region ', !Ref 'AWS::Region',
+          "\n", '/opt/aws/bin/cfn-signal -e $? ', ' --stack ', !Ref 'AWS::StackName',
+          ' --resource EC2Instance1 ', ' --region ', !Ref 'AWS::Region',
+          "\n", 'echo "Hello World from $(hostname -f)" >> /var/www/html/index.html'
+          ]
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT15M
+
+  EC2Instance2:
+    Type: AWS::EC2::Instance
+    Properties:
+      SecurityGroups: [!Ref InstanceSecurityGroup]
+      KeyName: !Ref KeyName
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref LatestAmiId
+      UserData: !Base64
+        Fn::Join:
+        - ''
+        - ['#!/bin/bash -x',
+          "\n", 'yum update -y aws-cfn-bootstrap',
+          "\n", '/opt/aws/bin/cfn-init -v ', ' --stack ', !Ref 'AWS::StackName',
+          ' --resource EC2Instance1 ', ' --region ', !Ref 'AWS::Region',
+          "\n", '/opt/aws/bin/cfn-signal -e $? ', ' --stack ', !Ref 'AWS::StackName',
+          ' --resource EC2Instance2 ', ' --region ', !Ref 'AWS::Region',
+          "\n", 'echo "Hello World from $(hostname -f)" >> /var/www/html/index.html'
+          ]
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT15M
+
+  EC2Instance3:
+    Type: AWS::EC2::Instance
+    Properties:
+      SecurityGroups: [!Ref InstanceSecurityGroup]
+      KeyName: !Ref KeyName
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref LatestAmiId
+      UserData: !Base64
+        Fn::Join:
+        - ''
+        - ['#!/bin/bash -x',
+          "\n", 'yum update -y aws-cfn-bootstrap',
+          "\n", '/opt/aws/bin/cfn-init -v ', ' --stack ', !Ref 'AWS::StackName',
+          ' --resource EC2Instance1 ', ' --region ', !Ref 'AWS::Region',
+          "\n", '/opt/aws/bin/cfn-signal -e $? ', ' --stack ', !Ref 'AWS::StackName',
+          ' --resource EC2Instance3 ', ' --region ', !Ref 'AWS::Region',
+          "\n", 'echo "Hello World from $(hostname -f)" >> /var/www/html/index.html'
+          ]
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT15M

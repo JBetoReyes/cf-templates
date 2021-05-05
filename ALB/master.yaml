@@ -1,0 +1,103 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Application LoadBalancer
+
+Parameters:
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+  BastionHostType:
+    Description: Bastion EC2 instance type
+    Type: String
+    Default: t2.micro
+    AllowedValues: [t2.micro, t2.small. t2.medium]
+  ApplicationServerInstanceType:
+    Description: Server EC2 instance type
+    Type: String
+    Default: t2.micro
+    AllowedValues: [t2.micro, t2.small]
+  AvailabilityZone1:
+    Description: First availability zone
+    Type: AWS::EC2::AvailabilityZone::Name
+    ConstraintDescription: Must be a valid availability zone
+  AvailabilityZone2:
+    Description: Second availability zone
+    Type: AWS::EC2::AvailabilityZone::Name
+    ConstraintDescription: Must be a valid availability zone
+  Environment:
+    Description: App Environment
+    Type: String
+    ConstraintDescription: Must be a valid string
+  KeyName:
+    Description: PEM file Name
+    Type: string
+    ConstraintDescription: Must be a string
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.10.0.0/16
+  
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: 10.10.10.0/24
+      VpcId: !Ref VPC
+      AvailabilityZone: !Ref AvailabilityZone1
+  
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: 10.10.20.0/24
+      VpcId: !Ref VPC
+      AvailabilityZone: !Ref AvailabilityZone2
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+  
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+
+  PublicTableRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: InternetGateway
+  
+  SubnetPublicRouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+  
+  SubnetPublicRouteTableAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+    
+  BastionSecurityGroup:
+  
+
+  BastionInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+    AvailabilityZone: !Ref AvailabilityZone1
+    ImageId: !Ref LatestAmiId
+    NetworkInterfaces:
+      - DeviceIndex: 0
+        AssociatePublicIpAddress: true
+        DeleteOnTermination: true
+        GroupSet:
+        - 
+
+

@@ -311,6 +311,12 @@ Resources:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
       Name: AppServerTargetGroup
+      TargetType: instance
+      HealthCheckEnabled: true
+      HealthCheckPath: /
+      HealthyThresholdCount: 3
+      HealthCheckTimeoutSeconds: 4
+      UnhealthyThresholdCount: 2
       Port: 80
       Protocol: HTTP
       TargetGroupAttributes:

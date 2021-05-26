@@ -121,7 +121,7 @@ Resources:
           files:
             /var/www/html/index.html:
               content: '<h1>Congratulations Beto working!, you have successfully launched the AWS CloudFormation sample.</h1>'
-              mode: 000644
+              mode: '000666'
               owner: root
               group: root
             /etc/cfn/cfn-hup.conf:
@@ -162,7 +162,7 @@ Resources:
                 files: [/etc/cfn/cfn-hup.conf, /etc/cfn/hooks.d/cfn-auto-reloader.conf]
     Properties:
       AvailabilityZone: !Ref AvailabilityZone1
-      SubnetId: !Ref PublicSubnet1
+      SubnetId: !Ref PrivateSubnet1
       ImageId: !Ref LatestAmiId
       SecurityGroupIds: 
       - !Ref AppServerInstanceSecurityGroup
@@ -192,7 +192,8 @@ Resources:
             - Install
         Update:
           commands:
-            update01: sudo yum update -y
+            update01: 
+              command: sudo yum update -y
         Install:
           packages:
             yum:
@@ -200,7 +201,7 @@ Resources:
           files:
             /var/www/html/index.html:
               content: '<h1>Congratulations Beto working!, you have successfully launched the AWS CloudFormation sample.</h1>'
-              mode: 000644
+              mode: '000666'
               owner: root
               group: root
             /etc/cfn/cfn-hup.conf:
@@ -240,7 +241,7 @@ Resources:
                 ensureRunning: 'true' 
                 files: [/etc/cfn/cfn-hup.conf, /etc/cfn/hooks.d/cfn-auto-reloader.conf]
     Properties:
-      SubnetId: !Ref PublicSubnet2
+      SubnetId: !Ref PrivateSubnet2
       AvailabilityZone: !Ref AvailabilityZone2
       ImageId: !Ref LatestAmiId
       KeyName: !Ref KeyName
@@ -259,7 +260,87 @@ Resources:
           ' --resource AppServerInstance2 ', ' --region ', !Ref 'AWS::Region',
           "\n", 'echo "Hello World from $(hostname -f)" >> /var/www/html/index.html'
           ]
-  
+
+  AppServerInstance3:
+    Type: AWS::EC2::Instance
+    Metadata:
+      Comment: Installs apache
+      AWS::CloudFormation::Init:
+        configSets:
+          UpdateAndInstall:
+            - Update
+            - Install
+        Update:
+          commands:
+            update01:
+              command: sudo yum update -y
+        Install:
+          packages:
+            yum:
+              httpd: []
+          files:
+            /var/www/html/private.html:
+              content: '<h1>Congratulations Beto working!, you have successfully launched the AWS CloudFormation sample. /private</h1>'
+              mode: '000666'
+              owner: root
+              group: root
+            /etc/cfn/cfn-hup.conf:
+              content: !Join ['', ['[main]
+
+                    ',stack=, !Ref 'AWS::StackId', '
+
+                    ',region=, !Ref 'AWS::Region',
+                    "\n",'interval=1', 
+                    "\n"
+                    ]]
+              mode: '000400'
+              owner: root
+              group: root
+            /etc/cfn/hooks.d/cfn-auto-reloader.conf:
+              content: !Join ['', ['[cfn-auto-reloader-hook]
+
+                    ', 'triggers=post.update
+
+                    ', 'path=Resources.AppServerInstance3.Metadata.AWS::CloudFormation::Init
+
+                    ', 'action=/opt/aws/bin/cfn-init -v ', ' --stack ', !Ref 'AWS::StackName',
+                  ' --resource AppServerInstance3', ' --region ', !Ref 'AWS::Region',
+                  "\n", 'runas=root
+
+                    ']]
+              mode: '000400'
+              owner: root
+              group: root
+          services:
+            sysvinit:
+              httpd:
+                enabled: 'true'
+                ensureRunning: 'true'
+              cfn-hup:
+                enabled: 'true'
+                ensureRunning: 'true'
+                files: [/etc/cfn/cfn-hup.conf, /etc/cfn/hooks.d/cfn-auto-reloader.conf]
+    Properties:
+      AvailabilityZone: !Ref AvailabilityZone1
+      SubnetId: !Ref PrivateSubnet1
+      ImageId: !Ref LatestAmiId
+      SecurityGroupIds: 
+      - !Ref AppServerInstanceSecurityGroup
+      KeyName: !Ref KeyName
+      InstanceType: !Ref ApplicationServerInstanceType
+      UserData: !Base64
+        Fn::Join:
+        - ''
+        - ['#!/bin/bash -x',
+          "\n", 'yum update -y aws-cfn-bootstrap',
+          "\n", '/opt/aws/bin/cfn-init -v ', ' --stack ', !Ref 'AWS::StackName',
+          ' --resource AppServerInstance3 ', ' --region ', !Ref 'AWS::Region',
+          ' --configsets UpdateAndInstall ',
+          "\n", '/opt/aws/bin/cfn-signal -e $? ', ' --stack ', !Ref 'AWS::StackName',
+          ' --resource AppServerInstance3 ', ' --region ', !Ref 'AWS::Region',
+          "\n", 'echo "Hello World from $(hostname -f)" >> /var/www/html/index.html'
+          ]
+
   PublicLoadBalancerSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -290,20 +371,21 @@ Resources:
       DefaultActions:
         - Type: forward
           TargetGroupArn: !Ref AppServerTargetGroup
+          Order: 2
       LoadBalancerArn: !Ref PublicLoadBalancer
       Port: 80
       Protocol: HTTP
-  
-  AppServerListenerRule:
+
+  AppServerListenerRule2:
     Type: AWS::ElasticLoadBalancingV2::ListenerRule
     Properties:
       Actions:
         - Type: forward
-          TargetGroupArn: !Ref AppServerTargetGroup
+          TargetGroupArn: !Ref AppServerTargetGroup2
       Conditions:
         - Field: path-pattern
           Values:
-            - "*"
+            - "/private.html"
       ListenerArn: !Ref HTTP80Listener
       Priority: 1
 
@@ -329,6 +411,26 @@ Resources:
         - Id: !Ref AppServerInstance2
           Port: 80
 
+  AppServerTargetGroup2:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: AppServerTargetGroup2
+      TargetType: instance
+      HealthCheckEnabled: true
+      HealthCheckPath: /
+      HealthyThresholdCount: 3
+      HealthCheckTimeoutSeconds: 4
+      UnhealthyThresholdCount: 2
+      Port: 80
+      Protocol: HTTP
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: 20
+      VpcId: !Ref VPC
+      Targets:
+        - Id: !Ref AppServerInstance3
+          Port: 80
+
   BastionSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -347,11 +449,6 @@ Resources:
       InstanceType: !Ref BastionHostType
       ImageId: !Ref LatestAmiId
       KeyName: !Ref KeyName
-      BlockDeviceMappings:
-        - DeviceName: /dev/sda1
-          Ebs:
-            VolumeSize: 20
-            VolumeType: gp2
       NetworkInterfaces:
         - DeviceIndex: 0
           AssociatePublicIpAddress: true
@@ -409,6 +506,3 @@ Resources:
     Properties:
       SubnetId: !Ref PrivateSubnet2
       RouteTableId: !Ref PrivateRouteTable
-  
-
-

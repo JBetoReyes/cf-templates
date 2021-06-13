@@ -1,0 +1,135 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: RDS Application
+
+Parameters:
+  InstanceType:
+    Description: EC2 instance type
+    Type: String
+    Default: t2.micro
+    AllowedValues: [t2.micro, t2.small, t2.medium]
+  
+  AvailabilityZone1:
+    Description: First availability zone
+    Type: AWS::EC2::AvailabilityZone::Name
+    ConstraintDescription: Must be a valid availability zone
+
+  KeyName:
+    Description: PEM file name
+    Type: AWS::EC2::KeyPair::KeyName
+    ConstraintDescription: Must be the name of an existing EC2 KeyPair
+  
+  LatestAmiId:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+
+  DBUrl:
+    Description: Database URL
+    Type: String
+
+Resources:
+
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.10.0.0/16
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: 10.10.10.0/24
+      VpcId: !Ref VPC
+      AvailabilityZone: !Ref AvailabilityZone1
+  
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.10.20.0/24
+      AvailabilityZone: !Ref AvailabilityZone1
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+  
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+  
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+  
+  PublicRoute1:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  SubnetPublicRouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet1
+
+  AppInstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: App security group
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+      - FromPort: 80
+        ToPort: 80
+        CidrIp: 0.0.0.0/0
+        IpProtocol: tcp
+      - FromPort: 443
+        ToPort: 443
+        CidrIp: 0.0.0.0/0
+        IpProtocol: tcp
+      - FromPort: 22
+        ToPort: 22
+        IpProtocol: tcp
+        CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+      - IpProtocol: tcp
+        FromPort: 5432
+        ToPort: 5432
+        CidrIp: 0.0.0.0/0
+  
+  AppInstance:
+    Type: AWS::EC2::Instance
+    DependsOn:
+    - AppInstanceSecurityGroup
+    - PublicSubnet1
+    Properties:
+      InstanceType: !Ref InstanceType
+      NetworkInterfaces:
+      - GroupSet:       
+        - Ref: AppInstanceSecurityGroup
+        AssociatePublicIpAddress: true
+        DeviceIndex: 0
+        DeleteOnTermination: true
+        SubnetId: !Ref PublicSubnet1
+      KeyName: !Ref KeyName
+      ImageId: !Ref LatestAmiId
+  
+  DBParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: DB
+      Type: String
+      Value: !Ref DBUrl
+  
+  RDSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: RDS Instance Security group
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref AppInstanceSecurityGroup

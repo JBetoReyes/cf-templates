@@ -8,8 +8,11 @@ STACK_CLI_ARGS := --template-url https://$(BUCKET).s3.amazonaws.com/master.yaml 
                                   --stack-name ${STACKNAME}  \
 				  --parameters \
 				  ParameterKey=KeyName,ParameterValue=$(KEYFILE_ARG) \
-				  ParameterKey=DBUrl,ParameterValue=$(DB_URL) \
 				  ParameterKey=AvailabilityZone1,ParameterValue=$(AVAILABILITY_ZONE1) \
+				  ParameterKey=AvailabilityZone2,ParameterValue=$(AVAILABILITY_ZONE2) \
+				  ParameterKey=DBName,ParameterValue=$(DB_NAME) \
+				  ParameterKey=DBUser,ParameterValue=$(DB_USER) \
+				  ParameterKey=DBPassword,ParameterValue=$(DB_PASSWORD) \
 				  --capabilities CAPABILITY_IAM \
 				  --capabilities CAPABILITY_NAMED_IAM
 		

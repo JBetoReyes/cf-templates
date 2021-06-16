@@ -13,6 +13,11 @@ Parameters:
     Type: AWS::EC2::AvailabilityZone::Name
     ConstraintDescription: Must be a valid availability zone
 
+  AvailabilityZone2:
+    Description: Second availability zone
+    Type: AWS::EC2::AvailabilityZone::Name
+    ConstraintDescription: Must be a valid availability zone
+
   KeyName:
     Description: PEM file name
     Type: AWS::EC2::KeyPair::KeyName
@@ -21,11 +26,48 @@ Parameters:
   LatestAmiId:
     Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
     Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
-
-  DBUrl:
-    Description: Database URL
+  
+  DBName:
+    Description: Database name
     Type: String
+  
+  DBUser:
+    NoEcho: 'true'
+    Description: The database admin account username
+    Type: String
+    MinLength: '1'
+    MaxLength: '16'
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    ConstraintDescription: must begin with a letter and contain only alphanumeric
+      characters.
 
+  DBPassword:
+    NoEcho: 'true'
+    Description: The database admin account password
+    Type: String
+    MinLength: '1'
+    MaxLength: '41'
+    AllowedPattern: '[a-zA-Z0-9]+'
+
+  DBAllocatedStorage:
+    Default: '10'
+    Description: The size of the database (Gb)
+    Type: Number
+    MinValue: '5'
+    MaxValue: '1024'
+    ConstraintDescription: Must be between 5 and 1024Gb.
+
+  DBInstanceClass:
+    Description: The database instance type
+    Type: String
+    Default: db.t2.small
+    AllowedValues: [db.t1.micro, db.m1.small, db.m1.medium, db.m1.large, db.m1.xlarge,
+      db.m2.xlarge, db.m2.2xlarge, db.m2.4xlarge, db.m3.medium, db.m3.large, db.m3.xlarge,
+      db.m3.2xlarge, db.m4.large, db.m4.xlarge, db.m4.2xlarge, db.m4.4xlarge, db.m4.10xlarge,
+      db.r3.large, db.r3.xlarge, db.r3.2xlarge, db.r3.4xlarge, db.r3.8xlarge, db.m2.xlarge,
+      db.m2.2xlarge, db.m2.4xlarge, db.cr1.8xlarge, db.t2.micro, db.t2.small, db.t2.medium,
+      db.t2.large]
+    ConstraintDescription: Must select a valid database instance type.
 Resources:
 
   VPC:
@@ -46,6 +88,13 @@ Resources:
       VpcId: !Ref VPC
       CidrBlock: 10.10.20.0/24
       AvailabilityZone: !Ref AvailabilityZone1
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.10.30.0/24
+      AvailabilityZone: !Ref AvailabilityZone2
 
   InternetGateway:
     Type: AWS::EC2::InternetGateway
@@ -98,6 +147,14 @@ Resources:
         FromPort: 5432
         ToPort: 5432
         CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: 80
+        ToPort: 80
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: 443
+        ToPort: 443
+        CidrIp: 0.0.0.0/0
   
   AppInstance:
     Type: AWS::EC2::Instance
@@ -115,15 +172,11 @@ Resources:
         SubnetId: !Ref PublicSubnet1
       KeyName: !Ref KeyName
       ImageId: !Ref LatestAmiId
-  
-  DBParameter:
-    Type: AWS::SSM::Parameter
-    Properties:
-      Name: DB
-      Type: String
-      Value: !Ref DBUrl
+      IamInstanceProfile: !Ref AppInstanceProfile
   
   RDSSecurityGroup:
+    DependsOn:
+    - VPC
     Type: AWS::EC2::SecurityGroup
     Properties:
       GroupDescription: RDS Instance Security group
@@ -133,3 +186,81 @@ Resources:
           FromPort: 5432
           ToPort: 5432
           SourceSecurityGroupId: !Ref AppInstanceSecurityGroup
+
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: RDS Instance Subnet Group
+      SubnetIds:
+      - !Ref PrivateSubnet1
+      - !Ref PrivateSubnet2
+  
+  AWSRDSRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - ec2.amazonaws.com
+          Action:
+          - 'sts:AssumeRole'
+      Path: /
+
+  AWSRDSPolicies:
+    DependsOn: RDSInstance
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: RDSPolicies
+      PolicyDocument:
+        Statement:
+        - Effect: Allow
+          Action: rds:DescribeDBInstances
+          Resource: !Sub 'arn:aws:rds:*'
+      Roles:
+      - !Ref AWSRDSRole
+
+  ReadRDSParamsPolicies:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: SSMPolicies
+      PolicyDocument:
+        Statement:
+        - Effect: Allow
+          Action: ssm:GetParameters
+          Resource: "arn:aws:ssm:*"
+      Roles:
+      - !Ref AWSRDSRole
+  
+  AppInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: "/"
+      Roles:
+      - Ref: AWSRDSRole
+  
+  RDSInstance:
+    DependsOn:
+    - RDSSecurityGroup
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBName: !Ref DBName
+      AvailabilityZone: !Ref AvailabilityZone1
+      AllocatedStorage: !Ref DBAllocatedStorage
+      DBInstanceClass: !Ref DBInstanceClass
+      Engine: postgres
+      MasterUsername: !Ref DBUser
+      MasterUserPassword: !Ref DBPassword
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VPCSecurityGroups: 
+      - !Ref RDSSecurityGroup
+  
+  RDSEndpointParameter:
+    DependsOn: RDSInstance
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: RDSEndpoint
+      Type: String
+      Value: !GetAtt RDSInstance.Endpoint.Address

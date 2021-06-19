@@ -158,6 +158,27 @@ Resources:
   
   AppInstance:
     Type: AWS::EC2::Instance
+    Metadata:
+      Comment: Installs Node App
+      AWS::CloudFormation::Init:
+        configSets:
+          Install:
+          - InstallNode
+          - InstallGit
+        InstallNode:
+          commands:
+            install01:
+              command: curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.38.0/install.sh | sudo -u ec2-user bash
+            install02:
+              command: echo ". /home/ec2-user/.nvm/nvm.sh" | sudo -u ec2-user bash
+            install03:
+              command: echo "(source $HOME/.bashrc && nvm install node) 2> >(tee -a /home/ec2-user/error.log)" | sudo -u ec2-user bash
+              env:
+                HOME: "/home/ec2-user"
+        InstallGit:
+          packages:
+            yum:
+              git: []
     DependsOn:
     - AppInstanceSecurityGroup
     - PublicSubnet1
@@ -173,6 +194,23 @@ Resources:
       KeyName: !Ref KeyName
       ImageId: !Ref LatestAmiId
       IamInstanceProfile: !Ref AppInstanceProfile
+      UserData: !Base64
+        Fn::Join:
+        - ''
+        - [
+          '#!/bin/bash -x',
+          "\n", "yum update -y",
+          "\n", 'yum update -y aws-cfn-bootstrap',
+          "\n", '/opt/aws/bin/cfn-init -v ',
+            ' --stack ', !Ref 'AWS::StackName',
+            ' --resource AppInstance ',
+            ' --region ', !Ref 'AWS::Region',
+            ' --configsets Install ',
+          "\n", '/opt/aws/bin/cfn-signal -e $?',
+            ' --stack ', !Ref 'AWS::StackName',
+            ' --resource AppServerInstance1 ',
+            ' --region ', !Ref 'AWS::Region'
+          ]
   
   RDSSecurityGroup:
     DependsOn:
@@ -210,7 +248,6 @@ Resources:
       Path: /
 
   AWSRDSPolicies:
-    DependsOn: RDSInstance
     Type: AWS::IAM::Policy
     Properties:
       PolicyName: RDSPolicies

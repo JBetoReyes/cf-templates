@@ -134,6 +134,10 @@ Resources:
         ToPort: 80
         CidrIp: 0.0.0.0/0
         IpProtocol: tcp
+      - FromPort: 3200
+        ToPort: 3200
+        IpProtocol: tcp
+        CidrIp: 0.0.0.0/0
       - FromPort: 443
         ToPort: 443
         CidrIp: 0.0.0.0/0
@@ -165,6 +169,8 @@ Resources:
           Install:
           - InstallNode
           - InstallGit
+          - PullAppRepo
+          - StartApp
         InstallNode:
           commands:
             install01:
@@ -179,6 +185,47 @@ Resources:
           packages:
             yum:
               git: []
+        PullAppRepo:
+          commands:
+            command01:
+              command: echo "git clone https://github.com/JBetoReyes/cf-node-apps.git" | sudo -u ec2-user bash
+              cwd: "/home/ec2-user"
+              ignoreErrors: true
+            command02:
+              command: mv ./cf-node-apps/rds ./app 2> errormkdir.txt
+              cwd: "/home/ec2-user"
+              ignoreErrors: true
+            command03:
+              command: echo "(source $HOME/.bashrc && npm install)" | sudo -u ec2-user bash 2> installerr.txt
+              cwd: "/home/ec2-user/app"
+              env:
+                HOME: "/home/ec2-user"
+        StartApp:
+          files:
+            /home/ec2-user/app/set_env_vars.sh:
+              content: |
+                #!/bin/bash
+                region=$(curl http://169.254.169.254/latest/meta-data/placement/region)
+                envvar=( RDSEndpoint RDSPort RDSDBName RDSDBUser RDSDBPassword )
+                appvars=( POSTGRES_HOST RDSPort POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD )
+                for i in "${!envvar[@]}"
+                do
+                  value=$(aws ssm get-parameters --names ${envvar[$i]} --region $region --query "Parameters[0].Value" | sed 's/"//g')
+                  key=${appvars[$i]}
+                  new_var=$key="$value"
+                  echo $new_var
+                  export $new_var
+                done
+                export APP_PORT=3200
+              mode: "000744"
+              owner: ec2-user
+              group: ec2-user
+          commands:
+            start01:
+              command: "source set_env_vars.sh && npm start &"
+              cwd: "/home/ec2-user/app"
+
+
     DependsOn:
     - AppInstanceSecurityGroup
     - PublicSubnet1
@@ -258,8 +305,8 @@ Resources:
           Resource: !Sub 'arn:aws:rds:*'
       Roles:
       - !Ref AWSRDSRole
-
-  ReadRDSParamsPolicies:
+  
+  AWSSSMPolicies:
     Type: AWS::IAM::Policy
     Properties:
       PolicyName: SSMPolicies
@@ -267,7 +314,12 @@ Resources:
         Statement:
         - Effect: Allow
           Action: ssm:GetParameters
-          Resource: "arn:aws:ssm:*"
+          Resource: 
+          - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/RDSPort'
+          - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/RDSDBName'
+          - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/RDSDBUser'
+          - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/RDSDBPassword'
+          - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/RDSEndpoint'
       Roles:
       - !Ref AWSRDSRole
   
@@ -301,3 +353,32 @@ Resources:
       Name: RDSEndpoint
       Type: String
       Value: !GetAtt RDSInstance.Endpoint.Address
+  
+  RDSPortParameter:
+    DependsOn: RDSInstance
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: RDSPort
+      Type: String
+      Value: !GetAtt RDSInstance.Endpoint.Port
+  
+  RDSDBNameParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: RDSDBName
+      Type: String
+      Value: !Ref DBName
+  
+  RDSDBUserParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: RDSDBUser
+      Type: String
+      Value: !Ref DBUser
+
+  RDSDBPasswordParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: RDSDBPassword
+      Type: String
+      Value: !Ref DBPassword
